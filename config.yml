@@ -12,4 +12,3 @@ ip_groups:
     group_name: armor
     domain_names:
       - armor.com
-      - www.armor.com

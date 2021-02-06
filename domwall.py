@@ -104,9 +104,9 @@ def sync_registry():
 
             #Check if domains have changed.
             if diff_lists(current_registry[registry_name].get('domain_names'),i['domain_names']):
+                logging.debug('DOMAIN NAMES CHANGED FOR ITEM: %s \t NEW DOMAIN LIST: %s' % (current_registry[registry_name], i['domain_names']))
                 current_registry[registry_name]['domain_names'] = i['domain_names']
                 current_registry[registry_name]['updated'] = 'true'
-                logging.debug('DOMAIN NAMES UPDATED FOR ITEM: %s' % current_registry[registry_name])
             #Check if IPs have changed
             ips = return_ip_list(current_registry[registry_name]['domain_names'])
             if diff_lists(current_registry[registry_name].get('ips'),ips):
