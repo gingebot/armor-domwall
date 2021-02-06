@@ -1,0 +1,15 @@
+global_config:
+  prefix: DOMWALL_
+
+ip_groups:
+  - location: DFW01
+    group_name: google
+    domain_names:
+      - www.google.com
+      - google.com
+      - mail.google.com
+  - location: DFW01
+    group_name: armor
+    domain_names:
+      - armor.com
+      - www.armor.com
