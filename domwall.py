@@ -1,5 +1,5 @@
 #!/bin/python3
-import os, logging, sys, traceback
+import os, logging, sys, traceback, argparse
 
 import yaml
 import dns.resolver
@@ -23,6 +23,8 @@ RULE_PREFIX = 'DOMWALL_'
 config = {}
 old_registry = {}
 current_registry = {}
+LOCATION_VCDORGVCDID = {}
+VCDORGVCDID_LOCATION = {}
 
 def configure_logging():
     """
@@ -68,14 +70,29 @@ def load_config():
 
     RULE_PREFIX = config['global_config'].get('prefix') or RULE_PREFIX
 
+def set_creds(args):
+    """
+    Function to set creds from config if CLI cread are not passed
+    """
+    global username
+    global password
+
+    username = args.username
+    password = args.password
+    if not username:
+        username = config['global_config'].get('username')
+    if not password:
+        password = config['global_config'].get('password')
+    if not username or not password:
+        logger.critical('username/password not provided')
+        sys.exit('username/password not provided')
+
 def get_vcdOrgVdcId():
     """
     create a dict of location names to vcdids for future lookup
     """
     global LOCATION_VCDORGVCDID
     global VCDORGVCDID_LOCATION
-    LOCATION_VCDORGVCDID = {}
-    VCDORGVCDID_LOCATION = {}
 
     firewalls = aa.make_request('https://api.armor.com/firewalls')
     for i in firewalls:
@@ -221,10 +238,14 @@ def get_groups():
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-u', '--username', help='Armor API username, overrides config value')
+    parser.add_argument('-p', '--password', help='Armor API password, overrides config value') 
 
+    args = parser.parse_args()
+   
     load_config()
-    username = os.environ.get('armor_username')
-    password = os.environ.get('armor_password')
+    set_creds(args) 
     aa = ArmorApi(username,password)
     logger.info('Initial API authentication complete')
     get_vcdOrgVdcId()
