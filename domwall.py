@@ -1,33 +1,44 @@
 #!/bin/python3
-
-import os
-import logging
-import sys
-import traceback
+import os, logging, sys, traceback
 
 import yaml
 import dns.resolver
 from armorapi import ArmorApi
 
-username = os.environ.get('armor_username')
-password = os.environ.get('armor_password')
+REGISTRY_FILE = 'registry.yml'
+CONFIG_FILE = 'config.yml'
+VALID_LOCATIONS = [ 'DFW01','LHR01','PHX01','SIN01','FRA01']
+VALID_LOG_LEVELS = ['DEBUG','INFO','WARNING','ERROR','CRITICAL']
+LOG_LEVEL = 'DEBUG'
+LOG_FILE = 'domwall.log'
+RULE_PREFIX = 'DOMWALL_'
 
-#configure logging
-#
 # Logging levels can be set to:
 # DEBUG
 # INFO
 # WARNING
 # ERROR
 # CRITICAL
-#
 
-logging.basicConfig(filename='domwall.log', 
-level=logging.DEBUG, 
-format='%(asctime)s | %(levelname)s | %(message)s')
+config = {}
+old_registry = {}
+current_registry = {}
 
-REGISTRY_FILE = 'registry.yml'
+def configure_logging():
+    """
+    Configure logging, called directely after config is loaded
+    """
+    global logger
 
+    log_level =  config['global_config'].get('log_level') or LOG_LEVEL
+    log_file =  config['global_config'].get('log_file') or LOG_FILE
+
+    logger = logging.getLogger()    
+    fileHandler = logging.FileHandler(log_file)
+    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    fileHandler.setFormatter(logFormatter)
+    logger.addHandler(fileHandler)
+    logger.setLevel(log_level)
 
 def load_config():
     """
@@ -35,30 +46,27 @@ def load_config():
     """
     global config
     global old_registry
-    old_registry = {}
-    global current_registry
-    current_registry = {}
     global RULE_PREFIX
-    global VALID_LOCATIONS
+
     #Load config
-    if os.path.isfile('config.yml'):
-        with open('config.yml') as config_file:
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE) as config_file:
             config = yaml.safe_load(config_file)
-            logging.debug('config loaded')
+            configure_logging()
+            logger.debug('config loaded from file : %s' % CONFIG_FILE)
     else:
-        logging.critical('config.yml does not exist or is not readable')
+        logger.critical('config.yml does not exist or is not readable')
         sys.exit('config.yml does not exist or is not readable')
 
     #Open registry file
     if os.path.isfile(REGISTRY_FILE):
         with open(REGISTRY_FILE) as registry_file:
             old_registry = yaml.safe_load(registry_file)
-            logging.debug('registry loaded from file %s' % REGISTRY_FILE)
+            logger.debug('registry loaded from file : %s' % REGISTRY_FILE)
     else:
-        logging.debug('registry not found, building registry from scratch')
+        logger.debug('registry not found, building registry from scratch')
 
-    RULE_PREFIX = config['global_config'].get('prefix') or 'DOMWALL_'
-    VALID_LOCATIONS = [ 'DFW01','LHR01','PHX01','SIN01','FRA01']
+    RULE_PREFIX = config['global_config'].get('prefix') or RULE_PREFIX
 
 def get_vcdOrgVdcId():
     """
@@ -76,24 +84,23 @@ def get_vcdOrgVdcId():
             LOCATION_VCDORGVCDID[i['location']] = i['vcdOrgVdcId']
             VCDORGVCDID_LOCATION[i['vcdOrgVdcId']] = i['location']
 
-
-
 def sync_registry():
     """
     Sync config rules into registy, check for any domain changes or ip changes
     """
-    group_list = []
+    global current_registry
 
+    group_list = []
     for i in config['ip_groups']:
         #Validate location
         if i['location'] not in VALID_LOCATIONS:
-            logging.critical('%s is not a valid firewall location, bailing' % i['location'])
+            logger.critical('%s is not a valid firewall location, bailing' % i['location'])
             sys.exit('%s is not a valid firewall location' % i['location'])
        
         #Validate group name is unique (per location)
         registry_name = '%s_%s' % (i['group_name'], i['location'])
         if registry_name in group_list:
-            logging.critical('already a group named %s for location %s. Group names must be uniq per location' % ( i['group_name'], i['location']))
+            logger.critical('already a group named %s for location %s. Group names must be uniq per location' % ( i['group_name'], i['location']))
             sys.exit('already a group named %s for location %s. Group names must be uniq per location' % (i['group_name'], i['location']))
         group_list.append(registry_name)
 
@@ -104,26 +111,28 @@ def sync_registry():
 
             #Check if domains have changed.
             if diff_lists(current_registry[registry_name].get('domain_names'),i['domain_names']):
-                logging.debug('DOMAIN NAMES CHANGED FOR ITEM: %s \t NEW DOMAIN LIST: %s' % (current_registry[registry_name], i['domain_names']))
+                logger.debug('DOMAIN NAMES CHANGED FOR ITEM: %s \t NEW DOMAIN LIST: %s' % (current_registry[registry_name], i['domain_names']))
                 current_registry[registry_name]['domain_names'] = i['domain_names']
             #Check if IPs have changed
             ips = return_ip_list(current_registry[registry_name]['domain_names'])
             if diff_lists(current_registry[registry_name].get('ips'),ips):
-                logging.debug('IP ADDRESSES CHANGED FOR ITEM : %s \t NEW IPS : %s' % (current_registry[registry_name], ips))
+                logger.debug('IP ADDRESSES CHANGED FOR ITEM : %s \t NEW IP LIST : %s' % (current_registry[registry_name], ips))
                 current_registry[registry_name]['ips'] = ips
                 current_registry[registry_name]['updated'] = 'true'
             if current_registry[registry_name]['updated'] == 'false':
-                logging.debug('NO UPDATES FOR ITEM: %s' % current_registry[registry_name])
+                logger.debug('NO IP ADDRESS CHANGES FOR ITEM : %s' % current_registry[registry_name])
         #Perform logic if is a new registry item
         else:
             ips = return_ip_list(i['domain_names'])
             current_registry[registry_name]= {'location' : i['location'], 'name' : i['group_name'], 'vcdOrgVcdId' : LOCATION_VCDORGVCDID.get(i['location']), 'domain_names' : i['domain_names'], 'ips' : ips, 'updated': 'true'}
-            logging.debug('REGISTRY ITEM CREATED : %s' %  current_registry[registry_name])
+            logger.debug('NEW REGISTRY ITEM CREATED : %s' %  current_registry[registry_name])
 
 def api_updates():
     """
     iterates through new registry, creates and updates items via API
     """
+    global current_registry
+
     for registry_name, group in current_registry.items():
         if not group.get('id'):
             #groups that don't have an ID are not created on the firewall yet, so create them
@@ -131,7 +140,7 @@ def api_updates():
         elif group['updated'] == 'true':
              update_group('%s%s' % (RULE_PREFIX, group['name']),group['ips'], group['domain_names'], group['vcdOrgVcdId'], group['id'])
         else:
-            logging.debug('Group not marked for update: %s' % group)
+            logger.debug('Group not marked for update: %s' % group)
 
 def return_ip_list(domains):
     """
@@ -144,17 +153,18 @@ def return_ip_list(domains):
         try:
             results = resolver.query(i, 'A')
         except Exception as error:
-            logging.critical(error)
+            logger.critical(error)
             traceback.print_exc()
             sys.exit()
         for x in results:
             ips.add(str(x))
-    logging.debug('resolved domains : %s . To IPs : %s ' % (domains, ips))
+    logger.debug('resolved domains : %s . To IPs : %s ' % (domains, ips))
     return list(ips)
 
 def diff_lists(list1, list2):
     """
-    function compares lists and returns true if they are different
+    function compares lists and returns true if they are different 
+    used to compared lists of domain names and lists of IP addresses to detect changes
     """
     list1.sort()
     list2.sort()
@@ -168,22 +178,19 @@ def write_registry():
     """
     write registry out to file on disk
     """
-    logging.debug('writing registry to %s' % REGISTRY_FILE)
+    logger.debug('writing registry to %s' % REGISTRY_FILE)
     with open(REGISTRY_FILE, 'w') as registry_file:
         yaml.dump(current_registry, registry_file)
-
-
 
 
 def create_group(name, ips, domains, vcdOrgVdcId):
     """
     makes api call to create an IP group
     """
-
     data = { 'name' : name, 'description' : 'DOMWALL AUTOMATION FOR DOMAINS: %s' % domains, 'values' : ips }
-    logging.debug('Creating the following IP group: %s' % data)
+    logger.debug('Creating the following IP group: %s' % data)
     group = aa.make_request('https://api.armor.com/firewall/%s/groups' % vcdOrgVdcId , method='post', data=data)
-    logging.debug('Api returned the following data: %s' % group)
+    logger.debug('Api returned the following data: %s' % group)
     return group.get('id')
  
 
@@ -191,11 +198,10 @@ def update_group(name, ips, domains, vcdOrgVdcId, groupId):
     """
     makes api call to update an IP group
     """
-
     data = { 'name' : name, 'description' : 'DOMWALL AUTOMATION FOR DOMAINS: %s' % domains, 'values' : ips }
-    logging.debug('Updating the following IP group: %s' % data)
+    logger.debug('Updating the following IP group: %s' % data)
     group = aa.make_request('https://api.armor.com/firewall/%s/groups/%s' % (vcdOrgVdcId,groupId) , method='put', data=data)
-    logging.debug('Api returned the following data: %s' % group)
+    logger.debug('Api returned the following data: %s' % group)
     return group.get('id')
 
 
@@ -215,9 +221,12 @@ def get_groups():
 
 if __name__ == '__main__':
 
-    aa = ArmorApi(username,password)
-    logging.info('Initial API authentication complete')
+
     load_config()
+    username = os.environ.get('armor_username')
+    password = os.environ.get('armor_password')
+    aa = ArmorApi(username,password)
+    logger.info('Initial API authentication complete')
     get_vcdOrgVdcId()
     sync_registry()
     api_updates()

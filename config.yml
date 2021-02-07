@@ -1,6 +1,6 @@
 global_config:
   prefix: DOMWALL_
-
+  log_level: DEBUG
 ip_groups:
   - location: DFW01
     group_name: google
@@ -12,3 +12,4 @@ ip_groups:
     group_name: armor
     domain_names:
       - armor.com
+      - www.armor.com
