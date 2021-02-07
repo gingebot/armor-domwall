@@ -1,5 +1,5 @@
 #!/bin/python3
-import os, logging, sys, traceback, argparse
+import os, logging, sys, traceback, argparse, datetime
 
 import yaml
 import dns.resolver
@@ -139,7 +139,6 @@ def sync_registry():
         #Perform logic if group already exists in registry
         if old_registry.get(registry_name):
             current_registry[registry_name] = old_registry.get(registry_name)
-            current_registry[registry_name]['updated'] = 'false'
 
             #Check if domains have changed.
             if diff_lists(current_registry[registry_name].get('domain_names'),i['domain_names']):
@@ -150,13 +149,13 @@ def sync_registry():
             if diff_lists(current_registry[registry_name].get('ips'),ips):
                 logger.debug('IP ADDRESSES CHANGED FOR ITEM : %s \t NEW IP LIST : %s' % (current_registry[registry_name], ips))
                 current_registry[registry_name]['ips'] = ips
-                current_registry[registry_name]['updated'] = 'true'
-            if current_registry[registry_name]['updated'] == 'false':
+                current_registry[registry_name]['api_synced'] = 'false'
+            else:
                 logger.debug('NO IP ADDRESS CHANGES FOR ITEM : %s' % current_registry[registry_name])
         #Perform logic if is a new registry item
         else:
             ips = return_ip_list(i['domain_names'])
-            current_registry[registry_name]= {'location' : i['location'], 'name' : i['group_name'], 'vcdOrgVcdId' : LOCATION_VCDORGVCDID.get(i['location']), 'domain_names' : i['domain_names'], 'ips' : ips, 'updated': 'true'}
+            current_registry[registry_name]= {'location' : i['location'], 'name' : i['group_name'], 'vcdOrgVcdId' : LOCATION_VCDORGVCDID.get(i['location']), 'domain_names' : i['domain_names'], 'ips' : ips,  'api_synced' : 'false'}
             logger.debug('NEW REGISTRY ITEM CREATED : %s' %  current_registry[registry_name])
 
 def api_updates():
@@ -169,8 +168,12 @@ def api_updates():
         if not group.get('id'):
             #groups that don't have an ID are not created on the firewall yet, so create them
             group['id'] = create_group('%s%s' % (RULE_PREFIX, group['name']),group['ips'], group['domain_names'], group['vcdOrgVcdId'])
-        elif group['updated'] == 'true':
-             update_group('%s%s' % (RULE_PREFIX, group['name']),group['ips'], group['domain_names'], group['vcdOrgVcdId'], group['id'])
+            group['api_synced'] = 'true'
+            group['api_sync_time'] = datetime.datetime.now().isoformat()
+        elif group.get('api_synced') == 'false':
+            gid = update_group('%s%s' % (RULE_PREFIX, group['name']),group['ips'], group['domain_names'], group['vcdOrgVcdId'], group['id'])
+            group['api_synced'] = 'true'
+            group['api_sync_time'] = datetime.datetime.now().isoformat()
         else:
             logger.debug('Group not marked for update: %s' % group)
 
@@ -258,10 +261,15 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--username', help='Armor API username, overrides config value')
     parser.add_argument('-p', '--password', help='Armor API password, overrides config value') 
     parser.add_argument('-v', '--verbose', action='store_true', help='logs verbose output to console')
-    
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-t', '--testconfig', help='validates config file passed with arguement', nargs=1)
+
     args = parser.parse_args()
     VERBOSE = args.verbose
- 
+    print(args)
+    if args.testconfig:
+        print('LOL, you think there is actually any validation in this application?') 
+
     load_config()
     set_creds(args) 
     aa = ArmorApi(username,password)
