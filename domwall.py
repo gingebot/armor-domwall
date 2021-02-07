@@ -42,6 +42,21 @@ def configure_logging():
     logger.addHandler(fileHandler)
     logger.setLevel(log_level)
 
+    if VERBOSE:
+        configure_verbose()
+
+def configure_verbose():
+    """
+    Updates logger to verbose and adds an output to console, for when application is called with -v/--verbose
+    """
+    global logger
+    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    console_output = logging.StreamHandler()
+    console_output.setLevel(logging.DEBUG)
+    console_output.setFormatter(logFormatter)
+    logger.addHandler(console_output)
+
+
 def load_config():
     """
     Load user config and backend saved data in the registry
@@ -237,13 +252,16 @@ def get_groups():
      
 
 if __name__ == '__main__':
+    global VERBOSE    
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-u', '--username', help='Armor API username, overrides config value')
     parser.add_argument('-p', '--password', help='Armor API password, overrides config value') 
-
+    parser.add_argument('-v', '--verbose', action='store_true', help='logs verbose output to console')
+    
     args = parser.parse_args()
-   
+    VERBOSE = args.verbose
+ 
     load_config()
     set_creds(args) 
     aa = ArmorApi(username,password)
