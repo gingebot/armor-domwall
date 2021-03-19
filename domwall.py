@@ -37,7 +37,7 @@ def configure_logging():
 
     logger = logging.getLogger()    
     fileHandler = logging.FileHandler(log_file)
-    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(message)s')
     fileHandler.setFormatter(logFormatter)
     logger.addHandler(fileHandler)
     logger.setLevel(log_level)
@@ -50,7 +50,7 @@ def configure_verbose():
     Updates logger to verbose and adds an output to console, for when application is called with -v/--verbose
     """
     global logger
-    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    logFormatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(message)s')
     console_output = logging.StreamHandler()
     console_output.setLevel(logging.DEBUG)
     console_output.setFormatter(logFormatter)
@@ -109,7 +109,8 @@ def get_vcdOrgVdcId():
     global LOCATION_VCDORGVCDID
     global VCDORGVCDID_LOCATION
 
-    firewalls = aa.make_request('https://api.armor.com/firewalls')
+    firewalls_response = aa.make_request('https://api.armor.com/firewalls')
+    firewalls = firewalls_response.json()
     for i in firewalls:
         #Skip recovery POD IDs
         if 'R' not in i['name']:
@@ -194,6 +195,9 @@ def return_ip_list(domains):
         for x in results:
             ips.add(str(x))
     logger.debug('resolved domains : %s . To IPs : %s ' % (domains, ips))
+    #ips = list(ips)
+    #if ips:
+    #    ips.append(ips[0])
     return list(ips)
 
 def diff_lists(list1, list2):
@@ -224,7 +228,8 @@ def create_group(name, ips, domains, vcdOrgVdcId):
     """
     data = { 'name' : name, 'description' : 'DOMWALL AUTOMATION FOR DOMAINS: %s' % domains, 'values' : ips }
     logger.debug('Creating the following IP group: %s' % data)
-    group = aa.make_request('https://api.armor.com/firewall/%s/groups' % vcdOrgVdcId , method='post', data=data)
+    group_response = aa.make_request('https://api.armor.com/firewall/%s/groups' % vcdOrgVdcId , method='post', data=data)
+    group = group_response.json()
     logger.debug('Api returned the following data: %s' % group)
     return group.get('id')
  
@@ -235,7 +240,10 @@ def update_group(name, ips, domains, vcdOrgVdcId, groupId):
     """
     data = { 'name' : name, 'description' : 'DOMWALL AUTOMATION FOR DOMAINS: %s' % domains, 'values' : ips }
     logger.debug('Updating the following IP group: %s' % data)
-    group = aa.make_request('https://api.armor.com/firewall/%s/groups/%s' % (vcdOrgVdcId,groupId) , method='put', data=data)
+    print(data)
+    print('https://api.armor.com/firewall/%s/groups/%s' % (vcdOrgVdcId,groupId))
+    group_response = aa.make_request('https://api.armor.com/firewall/%s/groups/%s' % (vcdOrgVdcId,groupId) , method='put', data=data)
+    group = group_response.json()
     logger.debug('Api returned the following data: %s' % group)
     return group.get('id')
 
@@ -245,7 +253,8 @@ def get_groups():
     """
     NOT IN USE ---- Gets all firewall groups for FW
     """
-    fwgroups = aa.make_request('https://api.armor.com/firewall/%s/groups' % vcdOrgVdcId)
+    fwgroups_response = aa.make_request('https://api.armor.com/firewall/%s/groups' % vcdOrgVdcId)
+    fwgroups = fwgroups_response.json()
     for i in fwgroups:
         if RULE_PREFIX in i['name']:
             print(i)
@@ -266,7 +275,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     VERBOSE = args.verbose
-    print(args)
     if args.testconfig:
         print('LOL, you think there is actually any validation in this application?') 
 
@@ -276,5 +284,12 @@ if __name__ == '__main__':
     logger.info('Initial API authentication complete')
     get_vcdOrgVdcId()
     sync_registry()
-    api_updates()
-    write_registry()
+    try:
+       api_updates()
+       write_registry()
+    except Exception as error:
+        #logger.critical(error)
+        write_registry()
+        traceback.print_exc()
+        sys.exit(error)
+

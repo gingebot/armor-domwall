@@ -3,13 +3,14 @@ global_config:
   log_level: DEBUG
 ip_groups:
   - location: DFW01
-    group_name: google
+    group_name: googley
     domain_names:
       - www.google.com
       - google.com
       - mail.google.com
   - location: DFW01
-    group_name: armor
+    group_name: armory
     domain_names:
       - armor.com
       - www.armor.com
+      - docs.armor.com

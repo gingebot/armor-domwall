@@ -3,3 +3,4 @@
 notes
 *.swp
 registry.yml
+.venv
